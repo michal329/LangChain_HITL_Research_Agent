@@ -100,3 +100,11 @@ def clear_checkbox_states(count: int):
         cb_key = f"src_cb_{idx}"
         if cb_key in st.session_state:
             del st.session_state[cb_key]
+
+def initialize_checkbox_states(count: int):
+    """
+    Ensures all checkbox states from 0 to count-1 are initialized in session state.
+    """
+    for idx in range(count):
+        get_source_checkbox(idx)
+

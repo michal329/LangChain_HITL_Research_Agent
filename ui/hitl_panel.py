@@ -1,18 +1,12 @@
 import streamlit as st
-from services import state_service, source_service, approval_service, chat_service
+from services import state_service, approval_service
 
 def render_hitl_panel():
     """
     Renders the verification list cards with checkboxes, text filters,
     and Option 1 (Approve) / Option 2 (Reject) command controls.
     """
-    pending = state_service.get_pending_sources()
-    gathered = source_service.get_gathered_sources()
-    
-    # Lazy initialize pending list in session state from store service
-    if not pending and gathered:
-        state_service.set_pending_sources(list(gathered))
-        pending = state_service.get_pending_sources()
+    pending = approval_service.get_pending_sources_for_review()
         
     if pending:
         st.write("---")
@@ -20,8 +14,7 @@ def render_hitl_panel():
         st.info("Please choose which sources to keep for the final summary. You can select/deselect individual sources, search or filter through them, and approve them, or reject and prompt the agent to search again.")
         
         # Initialize checkbox states
-        for idx in range(len(pending)):
-            state_service.get_source_checkbox(idx)
+        state_service.initialize_checkbox_states(len(pending))
             
         # Search & Filter box for sources
         filter_query = st.text_input("🔍 Filter sources by title or brief...", "")
@@ -37,22 +30,19 @@ def render_hitl_panel():
                 state_service.deselect_all_checkboxes(len(pending))
                 st.rerun()
                 
+        # Filter sources using the reusable service method
+        filtered_sources = approval_service.filter_sources(pending, filter_query)
+        
         # Render list of source cards with checkboxes
         selected_indices = []
-        for idx, src in enumerate(pending):
-            # Apply user filter query
-            if filter_query:
-                q = filter_query.lower()
-                if q not in src.get('title', '').lower() and q not in src.get('content', '').lower():
-                    continue
-            
-            is_checked = state_service.get_source_checkbox(idx)
+        for original_idx, src in filtered_sources:
+            is_checked = state_service.get_source_checkbox(original_idx)
             col_cb, col_card = st.columns([0.05, 0.95])
             with col_cb:
                 st.write("")
-                is_selected = st.checkbox("", value=is_checked, key=f"src_cb_{idx}")
+                is_selected = st.checkbox("", value=is_checked, key=f"src_cb_{original_idx}")
                 if is_selected:
-                    selected_indices.append(idx)
+                    selected_indices.append(original_idx)
             with col_card:
                 st.markdown(f"""
                 <div class="source-card">
@@ -75,16 +65,9 @@ def render_hitl_panel():
                 if not selected_indices:
                     st.error("⚠️ Please select at least one source to approve.")
                 else:
-                    selected_items = [pending[idx] for idx in selected_indices]
-                    resume_command = approval_service.build_approval_command(selected_items)
-                    
                     with st.spinner("Generating final summary of approved sources..."):
                         try:
-                            state_service.clear_checkbox_states(len(pending))
-                            state_service.set_pending_sources([])
-                            source_service.clear_sources()
-                            
-                            chat_service.resume_agent(resume_command)
+                            approval_service.approve_sources(pending, selected_indices)
                             st.success("Resumed successfully!")
                             st.rerun()
                         except Exception as e:
@@ -100,16 +83,9 @@ def render_hitl_panel():
                 key="feedback_val"
             )
             if st.button("❌ Reject & Re-Search", type="secondary", use_container_width=True):
-                feedback_val = feedback_text.strip() if feedback_text.strip() else "Please search for better sources."
-                resume_command = approval_service.build_rejection_command(feedback_val)
-                
                 with st.spinner("Submitting feedback and restarting search..."):
                     try:
-                        state_service.clear_checkbox_states(len(pending))
-                        state_service.set_pending_sources([])
-                        source_service.clear_sources()
-
-                        chat_service.resume_agent(resume_command)
+                        approval_service.reject_sources(pending, feedback_text)
                         st.success("Feedback submitted!")
                         st.rerun()
                     except Exception as e:
