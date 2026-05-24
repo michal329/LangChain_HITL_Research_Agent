@@ -80,10 +80,11 @@ def render_hitl_panel():
                     
                     with st.spinner("Generating final summary of approved sources..."):
                         try:
-                            chat_service.resume_agent(resume_command)
                             state_service.clear_checkbox_states(len(pending))
                             state_service.set_pending_sources([])
                             source_service.clear_sources()
+                            
+                            chat_service.resume_agent(resume_command)
                             st.success("Resumed successfully!")
                             st.rerun()
                         except Exception as e:
@@ -104,10 +105,11 @@ def render_hitl_panel():
                 
                 with st.spinner("Submitting feedback and restarting search..."):
                     try:
-                        chat_service.resume_agent(resume_command)
                         state_service.clear_checkbox_states(len(pending))
                         state_service.set_pending_sources([])
                         source_service.clear_sources()
+
+                        chat_service.resume_agent(resume_command)
                         st.success("Feedback submitted!")
                         st.rerun()
                     except Exception as e:
