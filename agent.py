@@ -1,76 +1,24 @@
 import os
 import re
+import logging
 from dotenv import load_dotenv
 from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware
-from langchain_core.tools import tool
 from langchain_groq import ChatGroq
-from pydantic import BaseModel, Field
-from tavily import TavilyClient
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
+
+# Import tools and shared source store
+from tools import search, approve, GATHERED_SOURCES
+
+# Import middleware config
+from middleware import hitl_middleware
+
+# Configure logger for this module
+logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Global store to maintain fetched source details across tool calls
-GATHERED_SOURCES = []
-
-class SearchInput(BaseModel):
-    query: str = Field(description="The search query to run on Tavily.")
-
-@tool(args_schema=SearchInput)
-def search(query: str) -> str:
-    """
-    Search the internet using Tavily to find potential sources on a topic.
-    This tool returns a list of potential sources (Title, URL, and a brief snippet).
-    """
-    global GATHERED_SOURCES
-    tavily_key = os.getenv("TAVILY_API_KEY")
-    if not tavily_key:
-        return "Error: TAVILY_API_KEY is not set in the environment."
-        
-    try:
-        client = TavilyClient(api_key=tavily_key)
-        response = client.search(query=query, search_depth="advanced")
-        results = response.get("results", [])
-        
-        # Store full results globally so we can retrieve full content later
-        GATHERED_SOURCES = results
-        
-        # Format metadata-only response for the agent
-        output = []
-        for i, res in enumerate(results, 1):
-            snippet = res.get("content", "")
-            if len(snippet) > 150:
-                snippet = snippet[:150] + "..."
-            output.append(
-                f"Source ID: {i}\n"
-                f"Title: {res.get('title')}\n"
-                f"URL: {res.get('url')}\n"
-                f"Brief: {snippet}"
-            )
-            
-        metadata_str = "\n\n".join(output)
-        return (
-            f"Found potential sources:\n\n{metadata_str}\n\n"
-            "REMINDER: You must submit your grouped sources as a formatted text block "
-            "to the 'approve' tool before writing any summaries."
-        )
-    except Exception as e:
-        return f"Error running search: {e}"
-
-class ApproveInput(BaseModel):
-    sources: str = Field(description="A formatted text string listing all the gathered sources grouped by category, including their Titles and URLs.")
-
-@tool(args_schema=ApproveInput)
-def approve(sources: str) -> str:
-    """
-    Submit the gathered and grouped sources (as a formatted text string) for human approval.
-    This tool MUST be called before writing any final summaries.
-    It returns the approved sources' details.
-    """
-    return f"Sources approved for summary:\n\n{sources}"
 
 def create_info_gathering_agent():
     """
@@ -81,16 +29,14 @@ def create_info_gathering_agent():
     tavily_api_key = os.getenv("TAVILY_API_KEY")
     
     if not groq_api_key or not tavily_api_key:
-        print("\n========================================================")
-        print("[SETUP REQUIRED] Missing environment variables!")
+        logger.error("[SETUP REQUIRED] Missing environment variables!")
         if not groq_api_key:
-            print(" - GROQ_API_KEY is not set.")
+            logger.error(" - GROQ_API_KEY is not set.")
         if not tavily_api_key:
-            print(" - TAVILY_API_KEY is not set.")
-        print("\nPlease create a '.env' file in this folder with your keys:")
-        print("GROQ_API_KEY=your_key")
-        print("TAVILY_API_KEY=your_key")
-        print("========================================================\n")
+            logger.error(" - TAVILY_API_KEY is not set.")
+        logger.error("\nPlease create a '.env' file in this folder with your keys:")
+        logger.error("GROQ_API_KEY=your_key")
+        logger.error("TAVILY_API_KEY=your_key")
         return None
         
     # Initialize Groq LLM
@@ -112,11 +58,6 @@ def create_info_gathering_agent():
         "- Once the 'approve' tool returns the approved sources' details, write a comprehensive, well-structured summary of the approved sources."
     )
     
-    # Configure HumanInTheLoopMiddleware to pause on `approve` tool
-    hitl_middleware = HumanInTheLoopMiddleware(
-        interrupt_on={"approve": True}
-    )
-    
     # Create the agent with MemorySaver and the middleware
     agent = create_agent(
         model=llm,
@@ -127,8 +68,8 @@ def create_info_gathering_agent():
     
     return agent
 
-def print_agent_messages(response):
-    """Utility to print the entire message history and tool calls."""
+def log_agent_messages(response):
+    """Utility to log the entire message history and tool calls."""
     if isinstance(response, dict) and "messages" in response:
         for i, msg in enumerate(response["messages"]):
             role = "User"
@@ -139,26 +80,29 @@ def print_agent_messages(response):
                 
             content = msg.content if hasattr(msg, "content") else (msg.get("content", "") if isinstance(msg, dict) else str(msg))
             
-            print(f"\n--- [{role} Message {i+1}] ---")
-            print(content)
+            logger.info(f"\n--- [{role} Message {i+1}] ---")
+            logger.info(content)
             
             if hasattr(msg, "tool_calls") and msg.tool_calls:
-                print(f"Proposing Tool Calls: {msg.tool_calls}")
+                logger.info(f"Proposing Tool Calls: {msg.tool_calls}")
     else:
-        print(response)
+        logger.info(response)
 
 if __name__ == "__main__":
-    print("Initializing Stage B/C Agent with Memory & Human-in-the-loop...")
+    # Configure logging to write cleanly to standard output when running this script directly
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    
+    logger.info("Initializing Stage B/C Agent with Memory & Human-in-the-loop...")
     agent = create_info_gathering_agent()
     
     if agent is not None:
-        print("Agent created successfully!")
+        logger.info("Agent created successfully!")
         
         # Check if environment is ready
         if os.getenv("GROQ_API_KEY") and os.getenv("TAVILY_API_KEY"):
             topic = input("\nEnter a topic to search for (e.g., 'Recent advances in fusion energy'): ")
             if topic.strip():
-                print(f"\n[1/3] Starting research on topic: '{topic}'...")
+                logger.info(f"\n[1/3] Starting research on topic: '{topic}'...")
                 
                 # Config with a thread_id for persistence/checkpointing
                 config = {"configurable": {"thread_id": "info_gathering_thread"}}
@@ -188,31 +132,29 @@ if __name__ == "__main__":
                                 break
                 
                 if is_interrupted and pending_tool_call:
-                    print("\n========================================================")
-                    print("⚠️  [HUMAN IN THE LOOP INTERRUPT]")
-                    print("The agent has gathered the following sources for your approval:")
-                    print("========================================================\n")
+                    logger.info("⚠️  [HUMAN IN THE LOOP INTERRUPT]")
+                    logger.info("The agent has gathered the following sources for your approval:")
                     
                     args = pending_tool_call.get("args", {}) if isinstance(pending_tool_call, dict) else getattr(pending_tool_call, "args", {})
                     sources_str = args.get("sources", "")
                     
                     # Print the sources proposed by the agent
-                    print(sources_str)
-                    print("-" * 50)
+                    logger.info(sources_str)
+                    logger.info("-" * 50)
                     
                     # Present the actual items from GATHERED_SOURCES to let the user select by ID
                     if GATHERED_SOURCES:
-                        print("\nFetched search results available for selection:")
+                        logger.info("\nFetched search results available for selection:")
                         for i, src in enumerate(GATHERED_SOURCES, 1):
-                            print(f"{i}. [{src.get('title')}]")
-                            print(f"   URL: {src.get('url')}")
-                            print(f"   Snippet: {src.get('content')[:100]}...")
-                            print("-" * 30)
+                            logger.info(f"{i}. [{src.get('title')}]")
+                            logger.info(f"   URL: {src.get('url')}")
+                            logger.info(f"   Snippet: {src.get('content')[:100]}...")
+                            logger.info("-" * 30)
                             
-                    print("\nOptions:")
-                    print(" - [Press Enter] to approve ALL sources.")
-                    print(" - Enter comma-separated indices to KEEP (e.g., '1,3' to keep only those).")
-                    print(" - Type 'r' to reject and ask the agent to search again with feedback.")
+                    logger.info("\nOptions:")
+                    logger.info(" - [Press Enter] to approve ALL sources.")
+                    logger.info(" - Enter comma-separated indices to KEEP (e.g., '1,3' to keep only those).")
+                    logger.info(" - Type 'r' to reject and ask the agent to search again with feedback.")
                     
                     user_input = input("\nYour decision: ").strip()
                     
@@ -222,13 +164,13 @@ if __name__ == "__main__":
                             "type": "reject",
                             "message": feedback if feedback.strip() else "Please search for better sources."
                         }
-                        print("\n[2/3] Resubmitting search with feedback...")
+                        logger.info("\n[2/3] Resubmitting search with feedback...")
                         resume_command = Command(resume={"decisions": [decision]})
                         result = agent.invoke(resume_command, config=config)
                         
                         # Print the final result after rejection feedback
-                        print("\n=== Agent Output ===")
-                        print_agent_messages(result)
+                        logger.info("\n=== Agent Output ===")
+                        log_agent_messages(result)
                         
                     else:
                         # Process approved/filtered list
@@ -245,7 +187,7 @@ if __name__ == "__main__":
                                         f"Detailed Content: {src.get('content')}\n\n"
                                     )
                             except Exception as e:
-                                print(f"Invalid input selection. Defaulting to all sources. Error: {e}")
+                                logger.error(f"Invalid input selection. Defaulting to all sources. Error: {e}")
                                 filtered_str = ""
                                 
                         # Default to passing all gathered sources with their full content if no filtering is applied
@@ -259,9 +201,9 @@ if __name__ == "__main__":
                                 )
                                 
                         if not filtered_str:
-                            print("No sources selected. Cancelling.")
+                            logger.warning("No sources selected. Cancelling.")
                         else:
-                            print(f"\n[2/3] Approving sources...")
+                            logger.info(f"\n[2/3] Approving sources...")
                             
                             # Resume by editing the string argument to contain the detailed source content
                             decision = {
@@ -273,16 +215,16 @@ if __name__ == "__main__":
                             }
                             resume_command = Command(resume={"decisions": [decision]})
                             
-                            print("\n[3/3] Generating final summary of approved sources...")
+                            logger.info("\n[3/3] Generating final summary of approved sources...")
                             result = agent.invoke(resume_command, config=config)
                             
-                            print("\n=== Agent Output ===")
-                            print_agent_messages(result)
+                            logger.info("\n=== Agent Output ===")
+                            log_agent_messages(result)
                 else:
-                    print("\nAgent finished without interruption.")
-                    print("\n=== Agent Output ===")
-                    print_agent_messages(result)
+                    logger.info("\nAgent finished without interruption.")
+                    logger.info("\n=== Agent Output ===")
+                    log_agent_messages(result)
         else:
-            print("\nPlease configure GROQ_API_KEY and TAVILY_API_KEY in a .env file to run the agent.")
+            logger.error("\nPlease configure GROQ_API_KEY and TAVILY_API_KEY in a .env file to run the agent.")
     else:
-        print("Initialization failed due to missing configuration.")
+        logger.error("Initialization failed due to missing configuration.")
