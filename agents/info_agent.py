@@ -30,7 +30,8 @@ def create_info_gathering_agent():
     llm = ChatGroq(
         model=settings.GROQ_MODEL,
         temperature=0.2,
-        groq_api_key=groq_api_key
+        groq_api_key=groq_api_key,
+        model_kwargs={"parallel_tool_calls": False}
     )
     
     # Clean and natural System Prompt to prevent tool use conflicts on Groq
@@ -41,6 +42,7 @@ def create_info_gathering_agent():
         "- First, search for potential sources on the user's topic.\n"
         "- Group the sources logically by category, perspective, or theme.\n"
         "- Submit the grouped list of sources to the user for approval using the 'approve' tool. You must wait for the user to approve the sources before writing any summary.\n"
+        "- CRITICAL: You must NEVER call the 'search' tool and the 'approve' tool in parallel or in the same turn. You must first call the 'search' tool, wait for the actual search results, and then call the 'approve' tool using ONLY those fetched sources.\n"
         "- Once the 'approve' tool returns the approved sources' details, write a comprehensive, well-structured summary of the approved sources."
     )
     
@@ -50,8 +52,11 @@ def create_info_gathering_agent():
     agent = create_agent(
         model=llm,
         tools=[search, approve],
+        system_prompt=system_prompt,
         middleware=[hitl_middleware],
-        checkpointer=MemorySaver()
-    )
+        checkpointer=MemorySaver()    
+        )
+
     
+
     return agent
