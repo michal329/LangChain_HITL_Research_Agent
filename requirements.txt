@@ -4,3 +4,4 @@ langchain-groq
 langchain-tavily
 python-dotenv
 tavily-python
+streamlit
