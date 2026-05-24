@@ -5,3 +5,5 @@ langchain-tavily
 python-dotenv
 tavily-python
 streamlit
+pytest
+pytest-mock
