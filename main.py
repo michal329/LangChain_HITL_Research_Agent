@@ -1,13 +1,15 @@
 import streamlit as st
 import uuid
 import os
-from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.types import Command
-import agent
 
-# Load environment variables
-load_dotenv()
+from config import settings
+from agents.info_agent import create_info_gathering_agent
+from services import source_service, approval_service
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Set page configuration for a premium responsive experience
 st.set_page_config(
@@ -103,7 +105,7 @@ html, body, [class*="css"] {
 
 .status-thinking {
     background-color: rgba(108, 99, 255, 0.15);
-    color: #6C63FF;ך
+    color: #6C63FF;
 }
 
 .status-hitl {
@@ -115,7 +117,7 @@ html, body, [class*="css"] {
 
 # Initialize Session States
 if "agent" not in st.session_state:
-    st.session_state.agent = agent.create_info_gathering_agent()
+    st.session_state.agent = create_info_gathering_agent()
 
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
@@ -141,8 +143,8 @@ with st.sidebar:
     st.markdown(f"**Thread ID:** `{st.session_state.thread_id[:8]}...`")
     
     # Check environment variable configurations
-    groq_configured = "Configured ✅" if os.getenv("GROQ_API_KEY") else "Missing ❌"
-    tavily_configured = "Configured ✅" if os.getenv("TAVILY_API_KEY") else "Missing ❌"
+    groq_configured = "Configured ✅" if settings.GROQ_API_KEY else "Missing ❌"
+    tavily_configured = "Configured ✅" if settings.TAVILY_API_KEY else "Missing ❌"
     
     st.write(f"**Groq API Key:** {groq_configured}")
     st.write(f"**Tavily API Key:** {tavily_configured}")
@@ -154,6 +156,7 @@ with st.sidebar:
         st.session_state.thread_id = str(uuid.uuid4())
         st.session_state.config = {"configurable": {"thread_id": st.session_state.thread_id}}
         st.session_state.pending_sources = []
+        source_service.clear_sources()
         # Clear any old checkbox states from session state
         keys_to_del = [k for k in st.session_state.keys() if k.startswith("src_cb_")]
         for k in keys_to_del:
@@ -260,8 +263,8 @@ else:
 # Render Human-in-the-Loop (HITL) Interface
 if is_interrupted and pending_tool_call:
     # Populates pending sources from module-level store if not already set in session state
-    if not st.session_state.pending_sources and agent.GATHERED_SOURCES:
-        st.session_state.pending_sources = list(agent.GATHERED_SOURCES)
+    if not st.session_state.pending_sources and source_service.get_gathered_sources():
+        st.session_state.pending_sources = list(source_service.get_gathered_sources())
         
     if st.session_state.pending_sources:
         st.write("---")
@@ -329,24 +332,8 @@ if is_interrupted and pending_tool_call:
                 if not selected_indices:
                     st.error("⚠️ Please select at least one source to approve.")
                 else:
-                    filtered_str = ""
                     selected_items = [st.session_state.pending_sources[idx] for idx in selected_indices]
-                    for i, src in enumerate(selected_items, 1):
-                        filtered_str += (
-                            f"Source {i}:\n"
-                            f"Title: {src.get('title')}\n"
-                            f"URL: {src.get('url')}\n"
-                            f"Detailed Content: {src.get('content')}\n\n"
-                        )
-                        
-                    decision = {
-                        "type": "edit",
-                        "edited_action": {
-                            "name": "approve",
-                            "args": {"sources": filtered_str}
-                        }
-                    }
-                    resume_command = Command(resume={"decisions": [decision]})
+                    resume_command = approval_service.build_approval_command(selected_items)
                     
                     with st.spinner("Generating final summary of approved sources..."):
                         try:
@@ -356,6 +343,7 @@ if is_interrupted and pending_tool_call:
                                 if f"src_cb_{idx}" in st.session_state:
                                     del st.session_state[f"src_cb_{idx}"]
                             st.session_state.pending_sources = []
+                            source_service.clear_sources()
                             st.success("Resumed successfully!")
                             st.rerun()
                         except Exception as e:
@@ -372,11 +360,7 @@ if is_interrupted and pending_tool_call:
             )
             if st.button("❌ Reject & Re-Search", type="secondary", use_container_width=True):
                 feedback_val = feedback_text.strip() if feedback_text.strip() else "Please search for better sources."
-                decision = {
-                    "type": "reject",
-                    "message": feedback_val
-                }
-                resume_command = Command(resume={"decisions": [decision]})
+                resume_command = approval_service.build_rejection_command(feedback_val)
                 
                 with st.spinner("Submitting feedback and restarting search..."):
                     try:
@@ -386,6 +370,7 @@ if is_interrupted and pending_tool_call:
                             if f"src_cb_{idx}" in st.session_state:
                                 del st.session_state[f"src_cb_{idx}"]
                         st.session_state.pending_sources = []
+                        source_service.clear_sources()
                         st.success("Feedback submitted!")
                         st.rerun()
                     except Exception as e:

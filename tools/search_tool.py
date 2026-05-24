@@ -1,10 +1,11 @@
-import os
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 from tavily import TavilyClient
+from config import settings
+from services import source_service
+from utils.logger import get_logger
 
-# Global store to maintain fetched source details across tool calls
-GATHERED_SOURCES = []
+logger = get_logger(__name__)
 
 class SearchInput(BaseModel):
     query: str = Field(description="The search query to run on Tavily.")
@@ -15,19 +16,19 @@ def search(query: str) -> str:
     Search the internet using Tavily to find potential sources on a topic.
     This tool returns a list of potential sources (Title, URL, and a brief snippet).
     """
-    global GATHERED_SOURCES
-    tavily_key = os.getenv("TAVILY_API_KEY")
+    tavily_key = settings.TAVILY_API_KEY
     if not tavily_key:
+        logger.error("TAVILY_API_KEY is not set in the configuration.")
         return "Error: TAVILY_API_KEY is not set in the environment."
         
     try:
+        logger.info(f"Running Tavily search for query: {query}")
         client = TavilyClient(api_key=tavily_key)
         response = client.search(query=query, search_depth="advanced")
         results = response.get("results", [])
         
-        # Store full results globally in-place so references in other modules are preserved
-        GATHERED_SOURCES.clear()
-        GATHERED_SOURCES.extend(results)
+        # Store full results in source_service
+        source_service.set_gathered_sources(results)
         
         # Format metadata-only response for the agent
         output = []
@@ -49,16 +50,5 @@ def search(query: str) -> str:
             "to the 'approve' tool before writing any summaries."
         )
     except Exception as e:
+        logger.error(f"Error running search: {e}", exc_info=True)
         return f"Error running search: {e}"
-
-class ApproveInput(BaseModel):
-    sources: str = Field(description="A formatted text string listing all the gathered sources grouped by category, including their Titles and URLs.")
-
-@tool(args_schema=ApproveInput)
-def approve(sources: str) -> str:
-    """
-    Submit the gathered and grouped sources (as a formatted text string) for human approval.
-    This tool MUST be called before writing any final summaries.
-    It returns the approved sources' details.
-    """
-    return f"Sources approved for summary:\n\n{sources}"

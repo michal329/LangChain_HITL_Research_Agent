@@ -1,30 +1,22 @@
-import os
-import logging
-from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
 
-# Import tools and shared source store
-from tools import search, approve, GATHERED_SOURCES
+from config import settings
+from tools.search_tool import search
+from tools.approve_tool import approve
+from middleware.hitl import hitl_middleware
+from utils.logger import get_logger
 
-# Import middleware config
-from middleware import hitl_middleware
-
-# Configure logger for this module
-logger = logging.getLogger(__name__)
-
-# Load environment variables from .env file
-load_dotenv()
-
+logger = get_logger(__name__)
 
 def create_info_gathering_agent():
     """
     Creates and returns the Stage B/C Information Gathering Agent.
     It integrates Groq (LLM), custom tools, memory, and Human-in-the-loop.
     """
-    groq_api_key = os.getenv("GROQ_API_KEY")
-    tavily_api_key = os.getenv("TAVILY_API_KEY")
+    groq_api_key = settings.GROQ_API_KEY
+    tavily_api_key = settings.TAVILY_API_KEY
     
     if not groq_api_key or not tavily_api_key:
         logger.error("[SETUP REQUIRED] Missing environment variables!")
@@ -32,15 +24,11 @@ def create_info_gathering_agent():
             logger.error(" - GROQ_API_KEY is not set.")
         if not tavily_api_key:
             logger.error(" - TAVILY_API_KEY is not set.")
-        logger.error("\nPlease create a '.env' file in this folder with your keys:")
-        logger.error("GROQ_API_KEY=your_key")
-        logger.error("TAVILY_API_KEY=your_key")
         return None
         
     # Initialize Groq LLM
-    model_name = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
     llm = ChatGroq(
-        model=model_name,
+        model=settings.GROQ_MODEL,
         temperature=0.2,
         groq_api_key=groq_api_key
     )
@@ -56,6 +44,8 @@ def create_info_gathering_agent():
         "- Once the 'approve' tool returns the approved sources' details, write a comprehensive, well-structured summary of the approved sources."
     )
     
+    logger.info("Initializing Agent with Groq LLM, custom search/approve tools, and HITL middleware.")
+    
     # Create the agent with MemorySaver and the middleware
     agent = create_agent(
         model=llm,
@@ -65,13 +55,3 @@ def create_info_gathering_agent():
     )
     
     return agent
-
-
-if __name__ == "__main__":
-    print("\n==========================================================")
-    print("🔍 Sage B/C Research Assistant Web Application")
-    print("==========================================================")
-    print("To launch the research assistant using the modern Streamlit UI,")
-    print("please run the following command in your terminal:")
-    print("\n    streamlit run app.py\n")
-    print("==========================================================\n")
