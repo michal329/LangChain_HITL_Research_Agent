@@ -25,6 +25,7 @@ if agent is None:
     GROQ_API_KEY=your_groq_api_key
     TAVILY_API_KEY=your_tavily_api_key
     ```
+    On Streamlit Community Cloud, add the same keys under **App settings → Secrets**.
     """)
     st.stop()
 

@@ -1,9 +1,11 @@
-langchain
-langchain-community
-langchain-groq
-langchain-tavily
-python-dotenv
-tavily-python
-streamlit
-pytest
-pytest-mock
+# Runtime dependencies (installed by Streamlit Community Cloud).
+# Pinned to the versions the test suite passes on.
+langchain==1.4.3
+langchain-core==1.6.6
+langchain-community==0.4.2
+langchain-groq==1.1.3
+langchain-tavily==0.2.18
+langgraph==1.2.12
+tavily-python==0.8.4
+python-dotenv==1.2.4
+streamlit==1.64.0

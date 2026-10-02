@@ -2,6 +2,7 @@ import streamlit as st
 import uuid
 from typing import List, Dict, Any
 from agents.info_agent import create_info_gathering_agent
+from config import settings
 from services import source_service
 
 def init_session_state():
@@ -19,6 +20,23 @@ def init_session_state():
 
     if "pending_sources" not in st.session_state:
         st.session_state.pending_sources = []
+
+    if "research_runs" not in st.session_state:
+        st.session_state.research_runs = 0
+
+def can_start_research() -> bool:
+    """
+    Checks the per-session research cap (MAX_RESEARCH_RUNS_PER_SESSION, 0 = unlimited).
+    The counter deliberately survives reset_thread().
+    """
+    limit = settings.MAX_RESEARCH_RUNS_PER_SESSION
+    return limit <= 0 or st.session_state.research_runs < limit
+
+def record_research_run():
+    """
+    Counts one research run against the per-session cap.
+    """
+    st.session_state.research_runs += 1
 
 def get_agent():
     """

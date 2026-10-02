@@ -18,3 +18,5 @@ dist/
 build/
 *.egg-info/
 .DS_Store
+# Streamlit secrets (never commit real keys)
+.streamlit/secrets.toml

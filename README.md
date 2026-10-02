@@ -127,6 +127,10 @@ python main.py
 
 This will spin up a local development server, typically opening at `http://localhost:8501`.
 
+### ☁️ Deploying to Streamlit Community Cloud
+
+The app is deployment-ready: pinned `requirements.txt`, `.streamlit/config.toml`, and settings that read from `st.secrets` as well as `.env`. See [DEPLOY.md](DEPLOY.md) for the step-by-step guide.
+
 ---
 
 ## 🧪 Running the Test Suite
@@ -134,7 +138,8 @@ This will spin up a local development server, typically opening at `http://local
 The project includes a 100% mocked, reliable test suite covering all services and tools. You can run it inside your virtual environment using `pytest`:
 
 ```bash
-# Run all unit tests with verbose outputs
+# Install the test dependencies, then run all unit tests with verbose outputs
+pip install -r requirements-dev.txt
 pytest -v
 ```
 

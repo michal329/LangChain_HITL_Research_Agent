@@ -1,6 +1,6 @@
 import streamlit as st
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
-from services import chat_service
+from services import chat_service, state_service
 
 def render_chat_history(messages: list):
     """
@@ -54,6 +54,11 @@ def render_chat_input():
     st.write("---")
     user_input = st.chat_input("Enter a research topic or ask follow-up questions...")
     if user_input:
+        if not state_service.can_start_research():
+            st.warning("This public demo allows a limited number of research runs per session. "
+                       "Clone the repository to run it with your own API keys.")
+            return
+        state_service.record_research_run()
         with st.spinner("Initiating research and searching..."):
             try:
                 chat_service.send_chat_message(user_input)
