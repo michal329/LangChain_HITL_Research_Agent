@@ -127,6 +127,15 @@ python main.py
 
 This will spin up a local development server, typically opening at `http://localhost:8501`.
 
+### 🐳 Running with Docker
+
+```bash
+docker build -t hitl-research-agent .
+docker run --rm -p 8501:8501 --env-file .env hitl-research-agent
+```
+
+Then open `http://localhost:8501`. The keys are read from `.env` at run time and are never copied into the image (`.dockerignore` excludes `.env` and `.streamlit/secrets.toml`). The container runs as a non-root user and has a health check on Streamlit's `/_stcore/health` endpoint.
+
 ### ☁️ Deploying to Streamlit Community Cloud
 
 The app is deployment-ready: pinned `requirements.txt`, `.streamlit/config.toml`, and settings that read from `st.secrets` as well as `.env`. See [DEPLOY.md](DEPLOY.md) for the step-by-step guide.
@@ -142,6 +151,13 @@ The project includes a 100% mocked, reliable test suite covering all services an
 pip install -r requirements-dev.txt
 pytest -v
 ```
+
+### 🔁 Continuous Integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to `main` and on every pull request:
+
+1. **Tests:** installs `requirements-dev.txt` and runs the suite with no API keys set.
+2. **Docker:** builds the image, starts the container and waits for the health endpoint to answer.
 
 ---
 
