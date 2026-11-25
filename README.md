@@ -1,14 +1,21 @@
-# 🧠 Sage B/C Research & Information Gathering Assistant
+# Research Agent with Human-in-the-Loop Approval
 
-Welcome to the **Sage B/C Research Assistant**, a premium, state-of-the-art information-gathering agent built with **LangChain**, **LangGraph**, and **Streamlit**. 
+[![CI](https://github.com/michal329/LangChain_HITL_Research_Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/michal329/LangChain_HITL_Research_Agent/actions/workflows/ci.yml)
 
-This assistant is designed to perform autonomous web research on any topic using the **Tavily Search API**, process and group the found resources, and pause execution for **Human-in-the-Loop (HITL) approval** before synthesizing the final intelligence report using a high-performance **Groq LLM**.
+A research agent built with **LangChain** and **LangGraph** that searches the web with **Tavily**, groups the sources it finds, and **pauses for a human to approve them** in a **Streamlit** UI. Only after approval does it write a summary, based only on the approved sources, using a **Groq**-hosted LLM.
+
+**Highlights**
+
+- The run is paused and resumed through LangGraph's **Human-in-the-Loop middleware** and a **checkpointer**: approving resumes with an edited tool call that carries only the selected sources; rejecting resumes with the reviewer's feedback and sends the agent back to search.
+- **Layered design**: UI, services and tools are separate, so the logic is tested without Streamlit.
+- **22 pytest tests** that mock the LLM, the agent state and the tools, run in CI with no API keys.
+- **Docker** image with a non-root user and a health check, built and smoke-tested in CI.
 
 ---
 
-## 🗺️ Architectural Flow & Decision Loop
+## 🗺️ Architecture
 
-The research assistant utilizes a robust, unidirectional state-management pattern. When the agent attempts to propose sources for approval, the execution is securely interrupted, yielding control back to the human reviewer via the interactive board.
+When the agent calls the `approve` tool, the HITL middleware interrupts the graph and hands control to the reviewer in the UI. The reviewer's decision is sent back as a resume command.
 
 ```mermaid
 graph TD
@@ -30,22 +37,21 @@ graph TD
 
 ## ✨ Features
 
-- **Autonomous Research Engine**: Leveraging `Tavily Search` for deep, high-quality, and multi-perspective web searches.
-- **Strict HITL Interruption**: Configured middleware ensures the LLM can *never* bypass human review or summarize unchecked sources.
+- **Web research**: the agent searches with `Tavily Search` and groups the results for review.
+- **Enforced human review**: the `approve` tool is interrupted by middleware, so the agent cannot summarize sources a human has not approved.
 - **Granular Approval Board**:
   - Filter candidate sources in real-time.
   - Check/uncheck individual sources to select only the highest-quality references.
   - Approve to edit the tool arguments dynamically and resume execution.
   - Reject with direct textual feedback, directing the agent back to the search phase.
-- **Clean Service Architecture**: Business logic is decoupled from UI rendering, ensuring robust modularity, simple unit testing, and predictable state synchronization.
-- **Premium Calmed UI**: Elegant typography, high-contrast visual states, responsive alerts, and professional status indicators.
+- **Service layer**: business logic is separate from UI rendering, which keeps it easy to unit test.
 
 ---
 
 ## 🛠️ Project Structure
 
 ```bash
-langchain_agent/
+LangChain_HITL_Research_Agent/
 ├── agents/
 │   └── info_agent.py         # Agent graph initialization, system prompts, LLM setup
 ├── config/
@@ -61,12 +67,14 @@ langchain_agent/
 │   ├── approve_tool.py       # Intercepted tool definition for source submissions
 │   └── search_tool.py        # Tavily integration, caching logic, format utilities
 ├── ui/
-│   ├── chat.py               # Chat bubbles and premium styling
+│   ├── chat.py               # Chat message rendering
 │   ├── header.py             # Top status bar and header information
 │   ├── sidebar.py            # Configuration details & state controllers
-│   ├── styles.py             # Glassmorphism and premium CSS injection
+│   ├── styles.py             # CSS injected into Streamlit
 │   └── hitl_panel.py         # Source selection board & action dispatchers
-├── tests/                    # Complete mock-enabled pytest suite
+├── utils/
+│   └── logger.py             # Logging setup
+├── tests/                    # pytest suite with mocked LLM and tools
 ├── main.py                   # Main CLI entrypoint to launch Streamlit
 ├── app.py                    # Streamlit layout core execution thread
 └── pytest.ini                # Test path mappings
@@ -83,8 +91,8 @@ langchain_agent/
 Clone the repository and set up a virtual environment:
 
 ```bash
-# Navigate to workspace
-cd langchain_agent
+git clone https://github.com/michal329/LangChain_HITL_Research_Agent.git
+cd LangChain_HITL_Research_Agent
 
 # Create and activate virtual environment
 python3 -m venv .venv
@@ -144,7 +152,7 @@ The app is deployment-ready: pinned `requirements.txt`, `.streamlit/config.toml`
 
 ## 🧪 Running the Test Suite
 
-The project includes a 100% mocked, reliable test suite covering all services and tools. You can run it inside your virtual environment using `pytest`:
+22 tests cover the services and tools. The LLM, the agent state and the tools are mocked, so the tests need no API keys or network:
 
 ```bash
 # Install the test dependencies, then run all unit tests with verbose outputs
@@ -163,7 +171,7 @@ pytest -v
 
 ## 📖 End-to-End Usage Example
 
-Let's walk through a typical session of gathering intelligence on a topic.
+A typical research session, step by step.
 
 ### Step 1: Submitting a Request
 You type the following prompt into the chat input field:
@@ -172,13 +180,13 @@ You type the following prompt into the chat input field:
 ### Step 2: Agent Gathers Information
 1. The agent initializes, recognizes that it needs sources, and calls the `search` tool with the query: `"solid state battery technology advancements"`.
 2. The `search` tool queries the Tavily API and fetches 5-6 sources containing page titles, URLs, and snippets.
-3. The results are parsed and securely cached inside the **Source Service**.
+3. The results are parsed and cached in the **Source Service**.
 4. The agent categorizes these sources and attempts to submit them to the user by calling `approve(sources="...")`.
 
 ### Step 3: HITL Interruption (The Review Board)
 At this point, the LangGraph engine intercepts the `approve` tool execution. The application switches states:
 - The standard chat box is temporarily locked.
-- A beautiful, high-contrast **Human-in-the-Loop Review Board** slides into view.
+- The **Human-in-the-Loop review board** appears.
 
 **What you will see in the UI:**
 - **Source List**: Interactive cards showing the Title, URL, and a full snippet for each gathered source.
@@ -198,7 +206,7 @@ At this point, the LangGraph engine intercepts the `approve` tool execution. The
    - `services/approval_service.py` formats these sources into a structured block.
    - It builds an **Edit Command** modifying the `approve` tool call arguments with *only* these 4 sources.
    - The graph resumes.
-4. The LLM receives the confirmed sources, processes their detailed content, and outputs a highly polished summary directly to the chat!
+4. The LLM receives the approved sources and writes a summary based only on them.
 
 #### Option B: Reject & Revise (Redirect Path)
 1. You review the sources and notice they are outdated.
@@ -216,4 +224,5 @@ At this point, the LangGraph engine intercepts the `approve` tool execution. The
 
 - **Model Selection**: For quick testing, `llama-3.1-8b-instant` is extremely fast. For complex multi-perspective summarization, set `GROQ_MODEL=llama-3.3-70b-versatile` in your `.env`.
 - **Parallel Tool Protection**: The agent configuration explicitly sets `parallel_tool_calls=False`. This prevents the LLM from executing a search and trying to self-approve in the same cycle, ensuring reliable HITL flow.
-- **Thread Safety**: Reset the workspace thread at any time by clicking the **"New Thread"** button in the sidebar. This wipes all checkpoint records and memory, generating a fresh unique session ID.
+- **New thread**: the **"New Thread"** button in the sidebar starts a fresh session with a new thread ID.
+- **Checkpoint storage**: the checkpointer is LangGraph's in-memory `MemorySaver`, so paused runs do not survive a restart. A persistent checkpointer (SQLite or Postgres) would be the next step for production use.
